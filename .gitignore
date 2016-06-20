@@ -1,0 +1,40 @@
+*.class
+*.log
+*.pyc
+*.pdf
+*_slides.html
+*_doc.html
+*_slides.zip
+*_doc.zip
+*_slides_files/
+*_doc_files/
+
+# sbt specific
+.cache/
+.history/
+.lib/
+dist/
+temp/
+target/
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+
+# Scala-IDE specific
+.scala_dependencies
+.worksheet
+
+#IDEA specific
+.idea/
+
+#Spark-specific
+metastore_db/
+
+.DS_Store
+
+#R
+.RData
+.Rhistory
+.Rproj.user
+*.RProj
