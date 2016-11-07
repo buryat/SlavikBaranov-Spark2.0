@@ -1,0 +1,432 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+  <title>Spark 2.0: Ожидание | Реальность</title>
+
+  <link rel="stylesheet" href="css/reveal.css">
+  <link rel="stylesheet" href="css/theme/white-helv.css">
+
+  <!-- Theme used for syntax highlighting of code -->
+  <link rel="stylesheet" href="css/highlight/idea.css">
+
+  <!-- Printing and PDF exports -->
+  <script>
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.type = 'text/css';
+    link.href = window.location.search.match(/print-pdf/gi) ? 'css/print/pdf.css' : 'css/print/paper.css';
+    document.getElementsByTagName('head')[0].appendChild(link);
+  </script>
+  <script src="js/plotly-latest.min.js"></script>
+  <script src="js/charts.js"></script>
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+    <section>
+      <div style="width: 80%; margin: 0 auto; text-align: left;">
+        <h1 style="position: relative;">Spark 2.0<br>
+          <small>Expectations vs. Reality</small>
+          <img src="img/spark-logo.png"
+               style="max-width: 21%; border: none; background: none; box-shadow: none;
+                                 position: absolute; top: 15px; right: 0px; margin: 0;"/>
+        </h1>
+        <br>
+        <br>
+        <br>
+        <h2 style="position: relative;">Vyacheslav Baranov,<br>
+        <small>Odnoklassniki.ru</small>
+        <img src="img/ok-logo.png"
+             style="height: 100%; border: none; background: none; box-shadow: none;
+                               position: absolute; bottom: 0px; right: 0px; margin: 0;"/>
+        </h2>
+      </div>
+    </section>
+    <section>
+      <h2>What's new in Spark 2.0?</h2>
+      <ul>
+        <li>Datasets API</li>
+        <li>Structured streaming</li>
+        <li>Improvements:</li>
+        <ul>
+          <li>ANSI SQL Support</li>
+          <li>SparkSession</li>
+          <li>New Accumulator API</li>
+          <li>Stat functions</li>
+        </ul>
+      </ul>
+      <hr>
+      <blockquote>
+        <h3>
+          A good release<br>
+          <small>and features are interesting</small>
+        </h3>
+      </blockquote>
+    </section>
+    <section>
+      <h3>Datasets: expectations</h3>
+      <ul>
+        <li>Type-safe operations (as in the RDD API)</li>
+        <li>API unified with the DataFrame API</li>
+        <pre><code class="lang-scala">
+  type DataFrame = Dataset[Row]
+        </code></pre>
+        <li>Tungsten back-end:</li>
+        <ul>
+          <li>A compact off-heap storage</li>
+          <li>Compilation of exressions<br>
+            <small>(like in DataFrames)</small></li>
+          <li>Memory allocation using Unsafe</li>
+          <li>Predicate push-down<br>
+            <small>(data filtering on the storage level)</small>
+          </li>
+        </ul>
+      </ul>
+    </section>
+    <section>
+      <h3>Dataset API</h3>
+      <pre><code class="lang-scala">
+  // DataFrame operations
+  df.filter(col("country") === 12345L)
+  df.filter("country = 12345")
+  spark.sql("SELECT * FROM df WHERE country = 12345")
+
+  // Dataset operations
+  case class UserInfo(
+    id: Long,
+    country: Long,
+    ...
+  )
+  val ds = df.as[UserInfo]
+  ds.filter(_.country == 12345L)
+      </code></pre>
+    </section>
+    <section>
+      <h3>Datasets: Exploratory analysis</h3>
+        <pre><code class="lang-scala">
+  // SQL
+  spark.sql("SELECT country, COUNT(*) AS cnt FROM df " +
+            "GROUP BY country HAVING cnt >= 100500 " +
+            "ORDER BY cnt DESC").show(5)
+
+  // DataFrame
+  df.groupBy("country").agg(count("*").as("cnt"))
+    .filter(col("cnt") >= 100500)
+    .orderBy(-col("cnt"))
+    .show(5)
+
+  // Dataset
+  ds.groupByKey(_.country).agg(count("*").name("cnt"))
+    .filter(_._2 > 100500)
+    .orderBy(-col("cnt"))
+    .show(5)
+
+        </code></pre>
+      <p><small>Dataset has two fields after aggregation: <code>col("value") & col("cnt")</code>,<br>
+        but in Scala you have to use <code>_1 & _2</code>.<br>
+
+      </small></p>
+    </section>
+    <section>
+      <h3>KeyValueGroupedDataset</h3>
+        <pre><code class="lang-scala">
+  // Map groups
+  ds.groupByKey(_.country).mapGroups { (id, iter) =>
+    val seq = iter.toSeq.sortBy(_.createTime)
+    for (item <- seq) {
+      ...
+    }
+  }
+
+  // Reduce groups
+  ds.groupByKey(_.country).reduceGroups { (a, b) =>
+    ...
+    val t = UserInfo(.....)
+    t
+  }
+        </code></pre>
+      <hr>
+      <blockquote>
+        <h3><small>One does simply write UserDefinedAggregateFunction<br>
+          with a single lambda expression</small></h3>
+      </blockquote>
+    </section>
+    <section>
+      <div id="size1" style="position: absolute; right: 0; top: 0; width:360px; height:380px;"></div>
+      <div style="position: relative; width: 100%;">
+        <div style="width: 70%">
+          <h3>Tungsten</h3>
+          <pre><code class="lang-scala">
+  case class UserInfo(
+    userId: Int,
+    createTime: Long,
+    ...)
+
+  val ds = spark.read.parquet(...)
+        .as[UserInfo].cache()
+  val rdd = ds.rdd.cache()
+          </code></pre>
+        </div>
+      </div>
+      <p><small>source of data: <a href="http://snahackathon.org">snahackathon.org</a></small></p>
+      <hr>
+      <blockquote>
+        <h4>&mdash; Tungsten has an interesting representation of data in memory.<br>
+          &mdash; Tell me about it!</h4>
+      </blockquote>
+    </section>
+    <section>
+      <h3>UnsafeRow encoding</h3>
+      <div style="max-height: 90%">
+        <img src="img/storage.png" style="border: none;box-shadow: none;"/>
+      </div>
+      <p>&nbsp;</p>
+    </section>
+    <section>
+      <div id="size2" style="position: absolute; right: 0; top: 0; width:360px; height:380px;"></div>
+      <div style="position: relative; width: 100%;">
+        <div style="width: 70%">
+          <h3>Another example</h3>
+          <pre><code class="lang-scala">
+  case class Relation(
+    otherId: Int,
+    mask: Int)
+
+  case class SimpleUserRelations(
+    userId: Int,
+    relations: Seq[Relation])
+          </code></pre>
+        </div>
+      </div>
+      <p>&nbsp;</p>
+      <p><small>source of data: <a href="http://snahackathon.org">snahackathon.org</a></small></p>
+      <hr>
+      <blockquote>
+        <h4 style="font-family: 'Comic Sans MS'; position: relative"><small>
+          wow<br>concern<br>such encoding<br>very tungsten<br>much memory</small></h4>
+      </blockquote>
+    </section>
+    <section>
+      <h3>Advanced implementation</h3>
+      <pre><code class="lang-scala">
+  case class AdvancedUserRelations(userId: Int,
+        otherIds: Array[Int], masks: Array[Int]) {
+    require(otherIds.length == masks.length)
+
+    def relations: Iterable[Relation] = new Iterable[Relation] {
+      override def iterator = otherIds.indices.iterator.map { i =>
+        Relation(otherIds(i), masks(i))
+      }
+      override def size = otherIds.length
+    }
+  }
+
+  // Iterate over all data
+  ds.map(_.relations.iterator.count(r => (r.mask & (1 << 7)) != 0))
+    .reduce(_ + _)
+  rdd.map(_.relations.iterator.count(r => (r.mask & (1 << 7)) != 0))
+    .reduce(_ + _)
+      </code></pre>
+    </section>
+    <section>
+      <h3>Comparison</h3>
+      <div id="size3" style="width:500px; height:380px; display: inline-block;"></div>
+      <div id="perf3" style="width:450px; height:380px; display: inline-block;"></div>
+    </section>
+    <section>
+      <h3>Datasets: Reality</h3>
+      <ul>
+        <li>API is rather good but DF are better for ad-hoc exploration</li>
+        <li>In some cases, Tungsten encoding takes down to 3x less memory:</li>
+        <small><ul>
+          <li>Sparse (many nulls)</li>
+          <li>Strings (UTF8 vs UTF16)</li>
+        </ul></small>
+        <li>In other cases, JVM-structures are more compact:</li>
+        <small><ul>
+          <li>Primitives</li>
+          <li>Primitive arrays</li>
+        </ul></small>
+        <li>The size of a Shuffle is not that critical but tendency is still observable (прим. переводчика, в какую сторону?)</li>
+        <li>Manual optimization is still much better (прим. переводчика, оптимизации в сторону скорости или использования памяти? или то и другое, на сколько я понимаю)<br>
+          <small>PySpark/SparkR compile expressions in the same bytecode as Dataest API, so the result is really good but it's far from a optimized Scala code</small></li>
+      </ul>
+    </section>
+    <section>
+      <h3>Datasets: Conclusion</h3>
+      <p>For better efficiency<br>
+        you should use the best parts of each API:</p>
+      <ul>
+        <li>SQL/DF for exploration</li>
+        <small><ul>
+          <li>data scheme exploration</li>
+          <li>joins on-the-fly *(прим. переводчика: не понял, какое именно преимущество это дает, в оригинале "join данных на лету")</li>
+          <li>statistics functions</li>
+        </ul></small>
+        <li>Dataset API for type-safe data preparation</li>
+          <small><ul>
+            <li>predicate push-down</li>
+            <li>map data into structures using column names</li>
+            <li>choosing a broacast join instead of a shuffle join</li>
+          </ul></small>
+        <li>RDD API for low-level optimizations</li>
+        <small><ul>
+          <li>periodical jobs *(прим. переводчика: не понял смысла, почему RDD предпочтительнее для periodical jobs)</li>
+          <li>manual control over caching</li>
+          <li>custom encoding for writing/reading data</li>
+        </ul></small>
+      </ul>
+    </section>
+    <section>
+      <h3>Structured Streaming: Expectation</h3>
+      <pre><code class="lang-scala">
+  val users = spark.read.parquet("...")
+
+  val df = spark.read.parquet("...")
+  val res = df.joinWith(users, df("userId") === users("id"))
+    .filter($"city" === 12345L)
+    .groupBy($"age", $"gender").agg(count("*"))
+
+  // Streaming
+  val in = spark.readStream.format("json").load("kafka://....")
+  val out = df.joinWith(users, df("userId") === users("id"))
+    .filter($"city" === 12345L)
+    .groupBy($"age", $"gender").agg(count("*"))
+
+  out.writeStream.format("jdbc")
+    .trigger(ProcessingTime(10.seconds))
+    .queryName("stream1")
+    .start("jdbc:mysql....")
+      </code></pre>
+    </section>
+    <section>
+      <h3>Structured Streaming: Reality</h3>
+      <ul>
+        <li>Handy API (stateful foreach sink)</li>
+        <li>At least once semantics</li>
+        <li>Still microbatching<br>
+        <small>you change back-end without changing the API (2.x)</small></li>
+      </ul>
+      <hr>
+      <div style="margin: 0 auto; display: inline-block;">
+        <blockquote class="twitter-tweet" data-lang="en">
+          <p lang="en" dir="ltr">Changing nomenclature: Then | now<br>
+            low latency | realtime<br>
+            online | realtime<br>
+            critical path | realtime<br>
+            fast | realtime<br>realtime | ...</p>
+          &mdash; recursion + negation (@palvaro)
+          <a href="https://twitter.com/palvaro/status/741828676069687296">June 12, 2016</a></blockquote>
+        <script async src="//platform.twitter.com/widgets.js" charset="utf-8"></script>
+      </div>
+    </section>
+    <section>
+      <h3>Improvements</h3>
+      <ul>
+        <li>ANSI SQL Support<br>
+        <small>nested select and other hacks</small></li>
+        <li>SparkSession<br>
+          <small>instead of SparkContext, SQLContext, HiveContext, StreamingContext</small></li>
+        <li>New Accumulator API<br>
+          <small>instead of SparkContext, SQLContext, HiveContext, StreamingContext</small></li>
+      </ul>
+      <pre><code class="lang-scala">
+  class Accumulator[T](..., param: AccumulatorParam[T], ...)
+
+  abstract class AccumulatorV2[IN, OUT] {
+    def reset(): Unit
+    def add(v: IN): Unit
+    def merge(other: AccumulatorV2[IN, OUT]): Unit
+    def value: OUT
+  }
+      </code></pre>
+    </section>w
+    <!-- Last Slide -->
+    <section>
+      <h2>Improvements: stat functions</h2>
+      <pre><code class="lang-scala">
+  df.stat.approxQuantile("birthDate", Array(0.0, 0.1, 0.5, 0.9, 1.0), 0.01)
+
+  val sketch =  df.stat.countMinSketch("birthDate", 0.0001, 0.99, 12345)
+  sketch.estimateCount(6248) // 98
+  df.filter("birthDate = 6248").count() // 98
+
+  val bf =  df.stat.bloomFilter("userId", 1000000, 0.01)
+  bf.mightContain(51940972)
+      </code></pre>
+    </section>
+    <!-- Last Slide -->
+    <section>
+      <h2>MLlib</h2>
+      <ul>
+        <li>Development of <code><b>org.apache.spark.mllib._</b></code> stops</li>
+        <li>Most models get <code><b>def evaluate()</b></code><br>
+          <small>characteristics of the model on a test dataset (прим. переводчика, возможно, есть более подходящяя фраза)</small></li>
+        <li>Decision trees got <code>featureImportances</code><br>
+        <small><code>DecisionTreeClassificationModel, RandomForestClassificationModel, GBTClassificationModel, etc.</code></small></li>
+        <li><code>MultilayerPerceptronClassifier</code> besides LBFGS got SGD</li>
+        <li>Added the algorithm of clasterization <code><b>BisectingKMeans</b></code></li>
+      </ul>
+    </section>
+    <section>
+      <h3>&nbsp;</h3>
+      <h3>&nbsp;</h3>
+      <h3>Q&A</h3>
+      <h3>&nbsp;</h3>
+      <h3>&nbsp;</h3>
+      <hr>
+      <blockquote>
+        <h2>Latest release is 2.0.1</h2>
+      </blockquote>
+    </section>
+  </div>
+</div>
+
+<script src="lib/js/head.min.js"></script>
+<script src="js/reveal.js"></script>
+
+<script>
+  // More info https://github.com/hakimel/reveal.js#configuration
+  Reveal.initialize({
+    history: true,
+    width: 960,
+    height: 600,
+    center: false,
+
+    // More info https://github.com/hakimel/reveal.js#dependencies
+    dependencies: [
+      {src: 'plugin/markdown/marked.js'},
+      {src: 'plugin/markdown/markdown.js'},
+      {src: 'plugin/notes/notes.js', async: true},
+      {
+        src: 'plugin/highlight/highlight.js', async: true, callback: function () {
+        hljs.initHighlightingOnLoad();
+      }
+      }
+    ]
+  });
+</script>
+<script>
+  plotSize1(document.getElementById('size1'));
+  plotSize2(document.getElementById('size2'));
+  plotSize3(document.getElementById('size3'));
+
+  plotPerf3(document.getElementById('perf3'));
+//  var perf_compare3_data = [
+//    {
+//      x: ['rdd, simple', 'ds, simple', 'rdd, adv', 'ds, adv', 'rdd, array'],
+//      y: [0.15, 0.67, 0.57, 0.71, 0.15],
+//      type: 'bar'
+//    }
+//  ];
+//  var perf_compare3_layout = {
+//    title: "Full iteration (s)",
+//    showlegend: false
+//  };
+//  Plotly.newPlot(perf_compare3, perf_compare3_data, perf_compare3_layout, {displayModeBar: false});
+</script>
+</body>
+</html>
